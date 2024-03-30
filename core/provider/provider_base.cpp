@@ -35,7 +35,7 @@
 #include "metamod_console.h"
 #include <filesystem.h>
 #include "metamod.h"
-#include <tier1/KeyValues.h>
+#include <tier0/KeyValues.h>
 
 
 /* Imports */

@@ -268,6 +268,7 @@ PLATFORM_INTERFACE void V_normalizeFloatString( char* pFloat );
 // this is locale-unaware and therefore faster version of standard isdigit()
 // It also avoids sign-extension errors.
 PLATFORM_INTERFACE bool V_isdigit_str( char* str);
+#define V_isdigit V_isdigit_str
 
 PLATFORM_INTERFACE bool V_iswdigit( int c );
 

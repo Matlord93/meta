@@ -436,7 +436,7 @@ void RegisterConVar( ConVarCreation_t& cvar );
 class BaseConVar
 {
 public:
-	inline const char* GetName() const { return m_ConVarData->GetName(); }
+	inline const char*	GetName( ) const			{ return m_ConVarData->GetName( ); }
 	inline const char*	GetDescription( ) const		{ return m_ConVarData->GetDescription( ); }
 	inline EConVarType	GetType( ) const			{ return m_ConVarData->GetType( ); }
 
@@ -455,17 +455,12 @@ protected:
 	// High-speed method to read convar data
 	ConVarHandle m_Handle;
 	CConVarBaseData* m_ConVarData;
-	ConVarData* m_ConVarData;
 };
 
 template<typename T>
-class ConVar  public BaseConVar
+class ConVar : public BaseConVar
 {
 public:
-    inline void SetValue(const T& val, const CSplitScreenSlot& index = CSplitScreenSlot()) {
-    // ...
-  }
-  
 	using FnChangeCallback_t = void(*)(ConVar<T>* ref, const CSplitScreenSlot nSlot, const T* pNewValue, const T* pOldValue);
 
 	ConVar(const char* name, int32_t flags, const char* description, const T& value, FnChangeCallback_t cb = nullptr)
@@ -522,9 +517,9 @@ public:
 
 	inline const T& Clamp(const T& value) const { return GetConVarData()->Clamp( value ); }
 	
-  inline const T& GetValue(const CSplitScreenSlot& index = CSplitScreenSlot()) const { return GetConVarData()->GetValue(index); }
-	inline void SetValue(const T& val, const CSplitScreenSlot& index = CSplitScreenSlot()) 
-	  {
+	inline const T&	GetValue( const CSplitScreenSlot& index = CSplitScreenSlot() ) const { return GetConVarData()->GetValue( index ); }
+	inline void	SetValue( const T& val, const CSplitScreenSlot& index = CSplitScreenSlot() )
+	{
 		auto newValue = this->Clamp( val );
 
 		char szNewValue[256], szOldValue[256];
@@ -602,7 +597,7 @@ static_assert(sizeof(ConVar<int>) == 0x10, "ConVar is of the wrong size!");
 static_assert(sizeof(ConVar<int>) == sizeof(ConVar<Vector>), "Templated ConVar size varies!");
 
 // Special case for string
-template<> inline void ConVar<const char*>::SetValue(const char*const& val, const CSplitScreenSlot& index) 
+template<> inline void ConVar<const char*>::SetValue( const char*const& val, const CSplitScreenSlot& index )
 {
 	auto newValue = this->Clamp( val );
 

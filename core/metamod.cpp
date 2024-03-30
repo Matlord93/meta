@@ -24,7 +24,6 @@
  */
 
 #include <stdio.h>
-#include <string>
 #include "metamod_oslink.h"
 #include "metamod.h"
 #include <interface.h>
@@ -79,42 +78,9 @@ static bool is_game_init = false;
 static bool vsp_load_requested = false;
 static bool vsp_loaded = false;
 static game_dll_t gamedll_info;
-int last_meta_res;
-IServerPluginCallbacks* vsp_callbacks = nullptr;
-bool were_plugins_loaded = false;
-MetamodSource g_Metamod;
-int g_PLID;
-CSourceHook g_SourceHook;
-CSourceHookImpl* g_SHPtr = &g_SourceHook;
-MetamodSource* g_pMetamod = &g_Metamod;
-
-
-static MetamodSourceConVar<const char*> metamod_version("metamod_version", 
-    ConVarFlag_Notify | ConVarFlag_SpOnly,
-	"Metamod:Source Version",
-	METAMOD_VERSION
-);
-
-static MetamodSourceConVar<const char*> mm_pluginsfile("mm_pluginsfile",
-	ConVarFlag_SpOnly,
-	"Metamod:Source Plugins File",
-#if defined WIN32 || defined _WIN32
-	"addons\\metamod\\metaplugins.ini"
-#else
-	"addons/metamod/metaplugins.ini"
-#endif
-);
-
-static MetamodSourceConVar<const char*> mm_basedir("mm_basedir",
-	ConVarFlag_SpOnly,
-	"Metamod:Source Base Folder",
-#if defined __linux__ || defined __APPLE__
-	"addons/metamod"
-#else
-	"addons\\metamod"
-#endif
-);
-
+static MetamodSourceConVar *metamod_version = NULL;
+static MetamodSourceConVar *mm_pluginsfile = NULL;
+static MetamodSourceConVar *mm_basedir = NULL;
 static CreateInterfaceFn engine_factory = NULL;
 static CreateInterfaceFn physics_factory = NULL;
 static CreateInterfaceFn filesystem_factory = NULL;
@@ -214,12 +180,12 @@ static class ProviderCallbacks : public IMetamodSourceProviderCallbacks
 				sizeof(filepath),
 				"%s/%s",
 				mod_path.c_str(),
-				mm_pluginsfile.GetValue());
+				provider->GetConVarString(mm_pluginsfile));
 			g_Metamod.PathFormat(vdfpath,
 				sizeof(vdfpath),
 				"%s/%s",
 				mod_path.c_str(),
-				mm_basedir.GetValue());
+				provider->GetConVarString(mm_basedir));
 			mm_LoadPlugins(filepath, vdfpath);
 		}
 		else
@@ -472,7 +438,7 @@ DoInitialPluginLoads()
 	const char *mmBaseDir = provider->GetCommandLineValue("mm_basedir", NULL);
 	if (!pluginFile) 
 	{
-		pluginFile = mm_pluginsfile.GetValue();
+		pluginFile = provider->GetConVarString(mm_pluginsfile);
 		if (pluginFile == NULL)
 		{
 			pluginFile = "addons/metamod/metaplugins.ini";
@@ -480,7 +446,7 @@ DoInitialPluginLoads()
 	}
 	if (!mmBaseDir)
 	{
-		mmBaseDir = mm_basedir.GetValue();
+		mmBaseDir = provider->GetConVarString(mm_basedir);
 		if (mmBaseDir == NULL)
 		{
 			mmBaseDir = "addons/metamod";
@@ -494,51 +460,49 @@ DoInitialPluginLoads()
 	mm_LoadPlugins(filepath, vdfpath);
 }
 
-ConVar<T> ConVar(const char *, int32_t, const char *, const T &, bool, const T &, bool, const T &, void (__cdecl *)(ConVar<T> *, const CSplitScreenSlot, const T *, const T *));
+void
+mm_StartupMetamod(bool is_vsp_load)
+{
+	char buffer[255];
 
-// Definition der ConVar
-ConVar myConVar("my_convar", std::to_string(1).c_str(), FCVAR_ARCHIVE, "Beschreibung der ConVar");
+	UTIL_Format(buffer,
+		sizeof(buffer),
+		"%s%s",
+		METAMOD_VERSION,
+		is_vsp_load ? "V" : "");
 
-// Die Funktion, die aufgerufen wird, wenn sich der Wert der ConVar ändert
-void OnConVarChange(IConVar *var, const char *pOldValue, float flOldValue) {
-    // Behandlung von ConVar-Änderungen
-    // Hier können Sie entsprechende Aktionen ausführen, wenn sich der Wert der ConVar ändert
-}
+	metamod_version = provider->CreateConVar("metamod_version", 
+		METAMOD_VERSION, 
+		"Metamod:Source Version",
+		ConVarFlag_Notify|ConVarFlag_SpOnly);
 
-// Registrierung der ConVar und Zuweisung der Callback-Funktion
-void RegisterConVars() {
-    // Definition der ConVar
-    ConVar myConVar("my_convar", "1", FCVAR_ARCHIVE, "Beschreibung der ConVar");
+	provider->SetConVarString(metamod_version, buffer);
 
-    // Registrierung der Callback-Funktion für Wertänderungen
-    myConVar.InstallChangeCallback(&OnConVarChange);
-}
+	mm_pluginsfile = provider->CreateConVar("mm_pluginsfile", 
+#if defined WIN32 || defined _WIN32
+		"addons\\metamod\\metaplugins.ini", 
+#else
+		"addons/metamod/metaplugins.ini",
+#endif
+		"Metamod:Source Plugins File",
+		ConVarFlag_SpOnly);
 
-// Andere Initialisierungen...
-void Initialize() {
-    // Registrieren Sie Ihre ConVars
-    RegisterConVars();
-}
+	mm_basedir = provider->CreateConVar("mm_basedir",
+#if defined __linux__ || defined __APPLE__
+		"addons/metamod",
+#else
+		"addons\\metamod",
+#endif
+		"Metamod:Source Base Folder",
+		ConVarFlag_SpOnly);
+	
+	g_bIsVspBridged = is_vsp_load;
 
-// Metamod-Initialisierungsfunktion
-void mm_StartupMetamod(bool is_vsp_load) {
-    char buffer[255];
-
-    // Hier müsste METAMOD_VERSION definiert sein
-    UTIL_Format(buffer,
-        sizeof(buffer),
-        "%s%s",
-        METAMOD_VERSION,
-        is_vsp_load ? "V" : "");
-
-    // Initialisierung von g_bIsVspBridged
-    g_bIsVspBridged = is_vsp_load;
-
-    // Wenn Metamod nicht für eine VSP geladen wird, initialisiere Plugins
-    if (!is_vsp_load) {
-        DoInitialPluginLoads();
-        in_first_level = true;
-    }
+	if (!is_vsp_load)
+	{
+		DoInitialPluginLoads();
+		in_first_level = true;
+	}
 }
 
 void
@@ -653,37 +617,37 @@ void MetamodSource::GetShVersions(int &shvers, int &shimpl)
 
 int MetamodSource::FormatIface(char iface[], size_t maxlength)
 {
-	size_t length = strlen(iface);
-	size_t i;
-	int num = 0;
+    size_t length = strlen(iface);
+    size_t i;
+    int num = 0;
 
-	for (i = length - 1; i + 1 > 0; i--)
-	{
-		if (!isdigit(iface[i]))
-		{
-			if (i != length - 1)
-			{
-				num = 1;
-			}
-			break;
-		}
-	}
+    for (i = length - 1; i + 1 > 0; i--)
+    {
+        if (!V_isdigit_str(&(iface[i]))) // Übergeben Sie einen Zeiger auf das Zeichen
+        {
+            if (i != length - 1)
+            {
+                num = 1;
+            }
+            break;
+        }
+    }
 
-	if ( (num && (maxlength <= length)) || (!num && (maxlength <= length + 3)) )
-	{
-		return -1;
-	}
+    if ((num && (maxlength <= length)) || (!num && (maxlength <= length + 3)))
+    {
+        return -1;
+    }
 
-	if (i != length - 1)
-	{
-		num = atoi(&(iface[++i]));
-	}
+    if (i != length - 1)
+    {
+        num = atoi(&(iface[++i]));
+    }
 
-	num++;
+    num++;
 
-	snprintf(&(iface[i]), 4, "%03d", num);
+    snprintf(&(iface[i]), 4, "%03d", num);
 
-	return num;
+    return num;
 }
 
 void *MetamodSource::InterfaceSearch(CreateInterfaceFn fn, const char *iface, int max, int *ret)
@@ -726,42 +690,42 @@ void *MetamodSource::InterfaceSearch(CreateInterfaceFn fn, const char *iface, in
 
 void *MetamodSource::VInterfaceMatch(CreateInterfaceFn fn, const char *iface, int min)
 {
-	char buffer[256];	/* assume no interface will go beyond this */
-	size_t len = strlen(iface);
-	int ret;			/* just in case something doesn't handle NULL properly */
+    char buffer[256];   /* Annahme, dass keine Schnittstelle diese Länge überschreitet */
+    size_t len = strlen(iface);
+    int ret;            /* Falls etwas NULL nicht ordnungsgemäß behandelt */
 
-	if (len > sizeof(buffer) - 4)
-	{
-		return NULL;
-	}
+    if (len > sizeof(buffer) - 4)
+    {
+        return NULL;
+    }
 
-	strcpy(buffer, iface);
+    strcpy(buffer, iface);
 
-	if (min != -1)
-	{
-		char *ptr = &buffer[len - 1];
-		int digits = 0;
-		while (isdigit(*ptr) && digits <=3)
-		{
-			*ptr = '\0';
-			digits++;
-			ptr--;
-		}
-		if (digits != 3)
-		{
-			/* for now, assume this is an error */
-			strcpy(buffer, iface);
-		}
-		else
-		{
-			char num[4];
-			min = (min == 0) ? 1 : min;
-			snprintf(num, sizeof(num), "%03d", min);
-			strcat(buffer, num);
-		}
-	}
+    if (min != -1)
+    {
+        char *ptr = &buffer[len - 1];
+        int digits = 0;
+        while (ptr >= buffer && !V_isdigit_str(ptr))
+        {
+            *ptr = '\0';
+            digits++;
+            ptr--;
+        }
+        if (digits != 3)
+        {
+            /* Vorläufig annehmen, dass dies ein Fehler ist */
+            strcpy(buffer, iface);
+        }
+        else
+        {
+            char num[4];
+            min = (min == 0) ? 1 : min;
+            snprintf(num, sizeof(num), "%03d", min);
+            strcat(buffer, num);
+        }
+    }
 
-	return InterfaceSearch(fn, buffer, IFACE_MAXNUM, &ret);
+    return InterfaceSearch(fn, buffer, IFACE_MAXNUM, &ret);
 }
 
 const char *MetamodSource::GetBaseDir()
@@ -917,12 +881,12 @@ const char *MetamodSource::GetGameBinaryPath()
 
 const char *MetamodSource::GetPluginsFile()
 {
-	return mm_pluginsfile.GetValue();
+	return provider->GetConVarString(mm_pluginsfile);
 }
 
 const char *MetamodSource::GetVDFDir()
 {
-	return mm_basedir.GetValue();
+	return provider->GetConVarString(mm_basedir);
 }
 
 bool MetamodSource::RegisterConCommandBase(ISmmPlugin *plugin, ConCommandBase *pCommand)
