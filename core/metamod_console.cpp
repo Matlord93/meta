@@ -31,7 +31,6 @@
 #include "metamod_util.h"
 #include "metamod_console.h"
 #include "metamod_plugins.h"
-#include "ConCommandBase.h"
 
 using namespace SourceMM;
 using namespace SourceHook;

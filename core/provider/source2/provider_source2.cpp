@@ -24,6 +24,8 @@
  */
 
 #include "provider_source2.h"
+#include <sourcehook/sourcehook_impl.h>
+#include <sourcehook/sourcehook.h>
 #include <metamod.h>
 #include <metamod_util.h>
 #include <metamod_console.h>
@@ -33,424 +35,317 @@
 #include <filesystem.h>
 #include <iserver.h>
 
-
 static Source2Provider g_Source2Provider;
-
 IMetamodSourceProvider* provider = &g_Source2Provider;
 
-CON_COMMAND_EXTERN(meta, LocalCommand_Meta, "Metamod:Source control options");
-
-
-static ISource2ServerConfig* serverconfig = NULL;
-INetworkServerService* netservice = NULL;
-IEngineServiceMgr* enginesvcmgr = NULL;
-
-SH_DECL_HOOK2_void(IServerGameClients, ClientCommand, SH_NOATTRIB, 0, CPlayerSlot, const CCommand&);
-SH_DECL_HOOK3_void(IEngineServiceMgr, RegisterLoopMode, SH_NOATTRIB, 0, const char *, ILoopModeFactory *, void **);
-SH_DECL_HOOK3_void(IEngineServiceMgr, UnregisterLoopMode, SH_NOATTRIB, 0, const char*, ILoopModeFactory*, void**);
-SH_DECL_HOOK0(ILoopModeFactory, CreateLoopMode, SH_NOATTRIB, 0, ILoopMode *);
-SH_DECL_HOOK1_void(ILoopModeFactory, DestroyLoopMode, SH_NOATTRIB, 0, ILoopMode *);
-SH_DECL_HOOK2(ILoopMode, LoopInit, SH_NOATTRIB, 0, bool, KeyValues*, ILoopModePrerequisiteRegistry *);
-SH_DECL_HOOK0_void(ILoopMode, LoopShutdown, SH_NOATTRIB, 0);
-
-#ifdef SHOULD_OVERRIDE_ALLOWDEDICATED_SERVER
-SH_DECL_HOOK1(ISource2ServerConfig, AllowDedicatedServers, const, 0, bool, EUniverse);
-#endif
-
 void Source2Provider::Notify_DLLInit_Pre(CreateInterfaceFn engineFactory,
-	CreateInterfaceFn serverFactory)
-{
-	engine = (IVEngineServer*)((engineFactory)(INTERFACEVERSION_VENGINESERVER, NULL));
-	if (!engine)
-	{
-		DisplayError("Could not find IVEngineServer! Metamod cannot load.");
-		return;
-	}
+                                         CreateInterfaceFn serverFactory) {
+    engine = (IVEngineServer*)((engineFactory)(INTERFACEVERSION_VENGINESERVER, nullptr));
+    if (!engine) {
+        DisplayError("Could not find IVEngineServer! Metamod cannot load.");
+        return;
+    }
 
-	gpGlobals = engine->GetServerGlobals();
-	serverconfig = (ISource2ServerConfig*)((serverFactory)(INTERFACEVERSION_SERVERCONFIG, NULL));
-	netservice = (INetworkServerService*)((engineFactory)(NETWORKSERVERSERVICE_INTERFACE_VERSION, NULL));
-	enginesvcmgr = (IEngineServiceMgr*)((engineFactory)(ENGINESERVICEMGR_INTERFACE_VERSION, NULL));
+    gpGlobals = engine->GetServerGlobals();
+    serverconfig = (ISource2ServerConfig*)((serverFactory)(INTERFACEVERSION_SERVERCONFIG, nullptr));
+    netservice = (INetworkServerService*)((engineFactory)(NETWORKSERVERSERVICE_INTERFACE_VERSION, nullptr));
+    enginesvcmgr = (IEngineServiceMgr*)((engineFactory)(ENGINESERVICEMGR_INTERFACE_VERSION, nullptr));
 
-	icvar = (ICvar*)((engineFactory)(CVAR_INTERFACE_VERSION, NULL));
-	if (!icvar)
-	{
-		DisplayError("Could not find ICvar! Metamod cannot load.");
-		return;
-	}
+    icvar = (ICvar*)((engineFactory)(CVAR_INTERFACE_VERSION, nullptr));
+    if (!icvar) {
+        DisplayError("Could not find ICvar! Metamod cannot load.");
+        return;
+    }
 
-	gameclients = (IServerGameClients*)(serverFactory(INTERFACEVERSION_SERVERGAMECLIENTS, NULL));
-	g_pFullFileSystem = baseFs = (IFileSystem*)((engineFactory)(FILESYSTEM_INTERFACE_VERSION, NULL));
-	if (baseFs == NULL)
-	{
-		mm_LogMessage("Unable to find \"%s\": .vdf files will not be parsed", FILESYSTEM_INTERFACE_VERSION);
-	}
+    gameclients = (IServerGameClients*)(serverFactory(INTERFACEVERSION_SERVERGAMECLIENTS, nullptr));
+    g_pFullFileSystem = baseFs = (IFileSystem*)((engineFactory)(FILESYSTEM_INTERFACE_VERSION, nullptr));
+    if (baseFs == nullptr) {
+        mm_LogMessage("Unable to find \"%s\": .vdf files will not be parsed", FILESYSTEM_INTERFACE_VERSION);
+    }
 
-	// Since we have to be added as a Game path (cannot add GameBin directly), we
-	// automatically get added to other paths as well, including having the MM:S
-	// dir become the default write path for logs and more. We can fix some of these.
-	
-	// GAMMACASE: This deals with the search paths where metamod could get added to, but there are still
-	// problems with this as console.log file for example would be created way earlier than we alter these search paths,
-	// and will be created in the metamod folder still, unsure what the solution to that could be tho!
+    // Since we have to be added as a Game path (cannot add GameBin directly), we
+    // automatically get added to other paths as well, including having the MM:S
+    // dir become the default write path for logs and more. We can fix some of these.
 
-	// NOTE: baseFs->PrintSearchPaths(); could be used to print out search paths to debug them.
+    // GAMMACASE: This deals with the search paths where metamod could get added to, but there are still
+    // problems with this as console.log file for example would be created way earlier than we alter these search paths,
+    // and will be created in the metamod folder still, unsure what the solution to that could be tho!
 
-	const char *pathIds[] = {
-		"ADDONS",
-		"CONTENT",
-		"CONTENTADDONS",
-		"CONTENTROOT",
-		"EXECUTABLE_PATH",
-		"GAME",
-		"GAMEBIN",
-		"GAMEROOT",
-		"MOD",
-		"PLATFORM",
-		"SHADER_SOURCE",
-		"SHADER_SOURCE_MOD",
-		"SHADER_SOURCE_ROOT"
-	};
+    // NOTE: baseFs->PrintSearchPaths(); could be used to print out search paths to debug them.
 
-	for(size_t id = 0; id < (sizeof(pathIds) / sizeof(pathIds[0])); id++)
-	{
-		CUtlVector<CUtlString> searchPaths;
-		baseFs->GetSearchPathsForPathID(pathIds[id], (GetSearchPathTypes_t)0, searchPaths);
+    const char* pathIds[] = {
+        "ADDONS", "CONTENT", "CONTENTADDONS", "CONTENTROOT", "EXECUTABLE_PATH", "GAME",
+        "GAMEBIN", "GAMEROOT", "MOD", "PLATFORM", "SHADER_SOURCE", "SHADER_SOURCE_MOD",
+        "SHADER_SOURCE_ROOT"};
 
-		FOR_EACH_VEC(searchPaths, i)
-		{
-			if(strstr(searchPaths[i].Get(), "metamod") != 0)
-			{
-				baseFs->RemoveSearchPath(searchPaths[i].Get(), pathIds[id]);
-			}
-		}
-	}
+    for (size_t id = 0; id < (sizeof(pathIds) / sizeof(pathIds[0])); id++) {
+        CUtlVector<CUtlString> searchPaths;
+        baseFs->GetSearchPathsForPathID(pathIds[id], (GetSearchPathTypes_t)0, searchPaths);
 
-	baseFs->RemoveSearchPaths("DEFAULT_WRITE_PATH");
+        FOR_EACH_VEC(searchPaths, i) {
+            if (strstr(searchPaths[i].Get(), "metamod") != nullptr) {
+                baseFs->RemoveSearchPath(searchPaths[i].Get(), pathIds[id]);
+            }
+        }
+    }
 
-	CBufferStringGrowable<260> searchPath;
-	baseFs->GetSearchPath("GAME", (GetSearchPathTypes_t)0, searchPath, 1);
-	baseFs->AddSearchPath(searchPath.Get(), "DEFAULT_WRITE_PATH");
+    baseFs->RemoveSearchPaths("DEFAULT_WRITE_PATH");
 
-	g_pCVar = icvar;
+    CBufferStringGrowable<260> searchPath;
+    baseFs->GetSearchPath("GAME", (GetSearchPathTypes_t)0, searchPath, 1);
+    baseFs->AddSearchPath(searchPath.Get(), "DEFAULT_WRITE_PATH");
 
-	ConVar_Register(FCVAR_RELEASE);
+    g_pCVar = icvar;
 
-	if (gameclients)
-	{
-		SH_ADD_HOOK(IServerGameClients, ClientCommand, gameclients, SH_MEMBER(this, &Source2Provider::Hook_ClientCommand), false);
-	}
+    ConVar_Register(FCVAR_RELEASE);
+
+    if (gameclients) {
+        SH_ADD_HOOK(IServerGameClients, ClientCommand, gameclients, SH_MEMBER(this, &Source2Provider::Hook_ClientCommand),
+                    false);
+    }
 
 #ifdef SHOULD_OVERRIDE_ALLOWDEDICATED_SERVER
-	SH_ADD_VPHOOK(ISource2ServerConfig, AllowDedicatedServers, serverconfig, SH_MEMBER(this, &Source2Provider::Hook_AllowDedicatedServers), false);
+    SH_ADD_VPHOOK(ISource2ServerConfig, AllowDedicatedServers, serverconfig,
+                  SH_MEMBER(this, &Source2Provider::Hook_AllowDedicatedServers), false);
 #endif
 
-	SH_ADD_HOOK(IEngineServiceMgr, RegisterLoopMode, enginesvcmgr, SH_MEMBER(this, &Source2Provider::Hook_RegisterLoopMode), false);
-	SH_ADD_HOOK(IEngineServiceMgr, UnregisterLoopMode, enginesvcmgr, SH_MEMBER(this, &Source2Provider::Hook_UnregisterLoopMode), false);
+    SH_ADD_HOOK(IEngineServiceMgr, RegisterLoopMode, enginesvcmgr,
+                SH_MEMBER(this, &Source2Provider::Hook_RegisterLoopMode), false);
+    SH_ADD_HOOK(IEngineServiceMgr, UnregisterLoopMode, enginesvcmgr,
+                SH_MEMBER(this, &Source2Provider::Hook_UnregisterLoopMode), false);
 }
 
-void Source2Provider::Notify_DLLShutdown_Pre()
-{
-	ConVar_Unregister();
+void Source2Provider::Notify_DLLShutdown_Pre() {
+    ConVar_Unregister();
 
-	SH_REMOVE_HOOK(IEngineServiceMgr, RegisterLoopMode, enginesvcmgr, SH_MEMBER(this, &Source2Provider::Hook_RegisterLoopMode), false);
-	SH_REMOVE_HOOK(IEngineServiceMgr, UnregisterLoopMode, enginesvcmgr, SH_MEMBER(this, &Source2Provider::Hook_UnregisterLoopMode), false);
+    SH_REMOVE_HOOK(IEngineServiceMgr, RegisterLoopMode, enginesvcmgr,
+                   SH_MEMBER(this, &Source2Provider::Hook_RegisterLoopMode), false);
+    SH_REMOVE_HOOK(IEngineServiceMgr, UnregisterLoopMode, enginesvcmgr,
+                   SH_MEMBER(this, &Source2Provider::Hook_UnregisterLoopMode), false);
 
-	if (gameclients)
-	{
-		SH_REMOVE_HOOK(IServerGameClients, ClientCommand, gameclients, SH_MEMBER(this, &Source2Provider::Hook_ClientCommand), false);
-	}
+    if (gameclients) {
+        SH_REMOVE_HOOK(IServerGameClients, ClientCommand, gameclients,
+                       SH_MEMBER(this, &Source2Provider::Hook_ClientCommand), false);
+    }
 }
 
-bool Source2Provider::ProcessVDF(const char* file, char path[], size_t path_len, char alias[], size_t alias_len)
-{
-	if (baseFs == NULL)
-	{
-		return false;
-	}
+bool Source2Provider::ProcessVDF(const char* file, char path[], size_t path_len, char alias[], size_t alias_len) {
+    if (baseFs == nullptr) {
+        return false;
+    }
 
-	KeyValues* pValues;
-	bool bKVLoaded = false;
-	const char* plugin_file, * p_alias;
+    KeyValues* pValues;
+    bool bKVLoaded = false;
+    const char* plugin_file, * p_alias;
 
-	pValues = new KeyValues("Metamod Plugin");
+    pValues = new KeyValues("Metamod Plugin");
 
-	bKVLoaded = pValues->LoadFromFile(baseFs, file);
-	if (!bKVLoaded)
-	{
-		delete pValues;
-		return false;
-	}
+    bKVLoaded = pValues->LoadFromFile(baseFs, file);
+    if (!bKVLoaded) {
+        delete pValues;
+        return false;
+    }
 
-	if ((plugin_file = pValues->GetString("file", NULL)) == NULL)
-	{
-		delete pValues;
-		return false;
-	}
+    if ((plugin_file = pValues->GetString("file", nullptr)) == nullptr) {
+        delete pValues;
+        return false;
+    }
 
-	UTIL_Format(path, path_len, "%s", plugin_file);
+    UTIL_Format(path, path_len, "%s", plugin_file);
 
-	if ((p_alias = pValues->GetString("alias", NULL)) != NULL)
-	{
-		UTIL_Format(alias, alias_len, "%s", p_alias);
-	}
-	else
-	{
-		UTIL_Format(alias, alias_len, "");
-	}
+    if ((p_alias = pValues->GetString("alias", nullptr)) != nullptr) {
+        UTIL_Format(alias, alias_len, "%s", p_alias);
+    } else {
+        UTIL_Format(alias, alias_len, "");
+    }
 
-	delete pValues;
+    delete pValues;
 
-	return true;
+    return true;
 }
 
-int Source2Provider::DetermineSourceEngine()
-{
+int Source2Provider::DetermineSourceEngine() {
 #if SOURCE_ENGINE == SE_DOTA
-	return SOURCE_ENGINE_DOTA;
+    return SOURCE_ENGINE_DOTA;
 #elif SOURCE_ENGINE == SE_CS2
-	return SOURCE_ENGINE_CS2;
+    return SOURCE_ENGINE_CS2;
 #else
 #error "SOURCE_ENGINE not defined to a known value"
 #endif
 }
 
-const char* Source2Provider::GetEngineDescription() const
-{
+const char* Source2Provider::GetEngineDescription() const {
 #if SOURCE_ENGINE == SE_DOTA
-	return "Dota 2 (2013)";
+    return "Dota 2 (2013)";
 #elif SOURCE_ENGINE == SE_CS2
-	return "Counter-Strike 2 (2023)";
+    return "Counter-Strike 2 (2023)";
 #else
 #error "SOURCE_ENGINE not defined to a known value"
 #endif
 }
 
-void Source2Provider::GetGamePath(char* pszBuffer, int len)
-{
-	CBufferStringGrowable<MAX_PATH> buf;
-	engine->GetGameDir(buf);
-	ke::SafeSprintf(pszBuffer, len, "%s", buf.Get());
+void Source2Provider::GetGamePath(char* pszBuffer, int len) {
+    CBufferStringGrowable<MAX_PATH> buf;
+    engine->GetGameDir(buf);
+    ke::SafeSprintf(pszBuffer, len, "%s", buf.Get());
 }
 
-const char* Source2Provider::GetGameDescription()
-{
-	return serverconfig->GetGameDescription();
+const char* Source2Provider::GetGameDescription() {
+    return serverconfig->GetGameDescription();
 }
 
 #ifdef SHOULD_OVERRIDE_ALLOWDEDICATED_SERVER
-bool Source2Provider::Hook_AllowDedicatedServers(EUniverse universe) const
-{
-	RETURN_META_VALUE(MRES_SUPERCEDE, true);
+bool Source2Provider::Hook_AllowDedicatedServers(EUniverse universe) const {
+    RETURN_META_VALUE(MRES_SUPERCEDE, true);
 }
 #endif
 
-const char* Source2Provider::GetCommandLineValue(const char* key, const char* defval)
-{
-	return CommandLine()->ParmValue(key, defval);
+const char* Source2Provider::GetCommandLineValue(const char* key, const char* defval) {
+    return CommandLine()->ParmValue(key, defval);
 }
 
-void Source2Provider::ConsolePrint(const char* str)
-{
-	ConMsg("%s", str);
+void Source2Provider::ConsolePrint(const char* str) {
+    ConMsg("%s", str);
 }
 
-void Source2Provider::ClientConsolePrint(MMSPlayer_t client, const char* message)
-{
-	engine->ClientPrintf(client, message);
+void Source2Provider::ClientConsolePrint(MMSPlayer_t client, const char* message) {
+    engine->ClientPrintf(client, message);
 }
 
-void Source2Provider::ServerCommand(const char* cmd)
-{
-	engine->ServerCommand(cmd);
+void Source2Provider::ServerCommand(const char* cmd) {
+    engine->ServerCommand(cmd);
 }
 
-const char* Source2Provider::GetConVarString(MetamodSourceConVar *convar)
-{
-#ifdef S2_CONVAR_UNFINISHED
-	if (convar == NULL)
-	{
-		return NULL;
-	}
-
-	return convar->GetString();
-#else
-	return nullptr;
-#endif
+bool Source2Provider::IsConCommandBaseACommand(ConCommandBase* pCommand) {
+    return !pCommand->IsConVar();
 }
 
-void Source2Provider::SetConVarString(MetamodSourceConVar *convar, const char* str)
-{
-#ifdef S2_CONVAR_UNFINISHED
-	convar->SetValue(str);
-#endif
+bool Source2Provider::RegisterConCommandBase(ConCommandBase* pCommand) {
+    if (pCommand->IsConVar()) {
+        auto& creation = pCommand->GetConVarCreation();
+        icvar->RegisterConVar(creation, pCommand->GetAdditionalFlags(), creation.m_pHandle, creation.m_pConVarData);
+    } else {
+        auto& creation = pCommand->GetConCommandCreation();
+        *creation.m_pHandle = icvar->RegisterConCommand(creation, pCommand->GetAdditionalFlags());
+    }
+    return true;
 }
 
-bool Source2Provider::IsConCommandBaseACommand(ConCommandBase* pCommand)
-{
-#ifdef S2_CONVAR_UNFINISHED
-	return pCommand->IsCommand();
-#else
-	return false;
-#endif
+void Source2Provider::UnregisterConCommandBase(ConCommandBase* pCommand) {
+    if (pCommand->IsConVar()) {
+        icvar->UnregisterConVar(pCommand->GetConVar());
+    } else {
+        icvar->UnregisterConCommand(pCommand->GetConCommand());
+    }
 }
 
-bool Source2Provider::RegisterConCommandBase(ConCommandBase* pCommand)
-{
-#ifdef S2_CONVAR_UNFINISHED
-	return g_SMConVarAccessor.Register(pCommand);
-#else
-	return true;
-#endif
-}
-
-void Source2Provider::UnregisterConCommandBase(ConCommandBase* pCommand)
-{
-#ifdef S2_CONVAR_UNFINISHED
-	return g_SMConVarAccessor.Unregister(pCommand);
-#endif
-}
-
-MetamodSourceConVar* Source2Provider::CreateConVar(const char* name,
-	const char* defval,
-	const char* help,
-	int flags)
-{
-#ifdef S2_CONVAR_UNFINISHED
-	int newflags = 0;
-	if (flags & ConVarFlag_Notify)
-	{
-		newflags |= FCVAR_NOTIFY;
-	}
-	if (flags & ConVarFlag_SpOnly)
-	{
-		newflags |= FCVAR_SPONLY;
-	}
-
-	ConVar* pVar = new ConVar(name, defval, newflags, help);
-
-	g_SMConVarAccessor.RegisterConCommandBase(pVar);
-
-	return pVar;
-#else
-	return nullptr;
-#endif
-}
-
-class GlobCommand : public IMetamodSourceCommandInfo
-{
+class GlobCommand : public IMetamodSourceCommandInfo {
 public:
-	GlobCommand(const CCommand* cmd) : m_cmd(cmd)
-	{
-	}
+    GlobCommand(const CCommand* cmd) : m_cmd(cmd) {}
 public:
-	unsigned int GetArgCount()
-	{
-		return m_cmd->ArgC() - 1;
-	}
+    unsigned int GetArgCount() override {
+        return m_cmd->ArgC() - 1;
+    }
 
-	const char* GetArg(unsigned int num)
-	{
-		return m_cmd->Arg(num);
-	}
+    const char* GetArg(unsigned int num) override {
+        return m_cmd->Arg(num);
+    }
 
-	const char* GetArgString()
-	{
-		return m_cmd->ArgS();
-	}
+    const char* GetArgString() override {
+        return m_cmd->ArgS();
+    }
 private:
-	const CCommand* m_cmd;
+    const CCommand* m_cmd;
 };
 
-void LocalCommand_Meta(const CCommandContext &, const CCommand& args)
-{
-	if (nullptr != g_Source2Provider.m_pCallbacks)
-	{
-		GlobCommand cmd(&args);
-		g_Source2Provider.m_pCallbacks->OnCommand_Meta(&cmd);
-	}
+void LocalCommand_Meta(const CCommandContext&, const CCommand& args) {
+    if (nullptr != g_Source2Provider.m_pCallbacks) {
+        GlobCommand cmd(&args);
+        g_Source2Provider.m_pCallbacks->OnCommand_Meta(&cmd);
+    }
 }
 
-void Source2Provider::Hook_RegisterLoopMode(const char *pszLoopModeName, ILoopModeFactory *pLoopModeFactory, void **ppGlobalPointer)
-{
-	if (!strcmp(pszLoopModeName, "game"))
-	{
-		SH_ADD_HOOK(ILoopModeFactory, CreateLoopMode, pLoopModeFactory, SH_MEMBER(this, &Source2Provider::Hook_CreateLoopModePost), true);
-		SH_ADD_HOOK(ILoopModeFactory, DestroyLoopMode, pLoopModeFactory, SH_MEMBER(this, &Source2Provider::Hook_DestroyLoopMode), false);
+void Source2Provider::Hook_RegisterLoopMode(const char* pszLoopModeName, ILoopModeFactory* pLoopModeFactory,
+                                            void** ppGlobalPointer) {
+    if (!strcmp(pszLoopModeName, "game")) {
+        SH_ADD_HOOK(ILoopModeFactory, CreateLoopMode, pLoopModeFactory,
+                    SH_MEMBER(this, &Source2Provider::Hook_CreateLoopModePost), true);
+        SH_ADD_HOOK(ILoopModeFactory, DestroyLoopMode, pLoopModeFactory,
+                    SH_MEMBER(this, &Source2Provider::Hook_DestroyLoopMode), false);
 
-		if (nullptr != m_pCallbacks)
-		{
-			m_pCallbacks->OnGameInit();
-		}
-	}
+        if (nullptr != m_pCallbacks) {
+            m_pCallbacks->OnGameInit();
+        }
+    }
 }
 
-void Source2Provider::Hook_UnregisterLoopMode(const char* pszLoopModeName, ILoopModeFactory* pLoopModeFactory, void** ppGlobalPointer)
-{
-	if (!strcmp(pszLoopModeName, "game"))
-	{
-		SH_REMOVE_HOOK(ILoopModeFactory, CreateLoopMode, pLoopModeFactory, SH_MEMBER(this, &Source2Provider::Hook_CreateLoopModePost), true);
-		SH_REMOVE_HOOK(ILoopModeFactory, DestroyLoopMode, pLoopModeFactory, SH_MEMBER(this, &Source2Provider::Hook_DestroyLoopMode), false);
-	}
+void Source2Provider::Hook_UnregisterLoopMode(const char* pszLoopModeName, ILoopModeFactory* pLoopModeFactory,
+                                              void** ppGlobalPointer) {
+    if (!strcmp(pszLoopModeName, "game")) {
+        SH_REMOVE_HOOK(ILoopModeFactory, CreateLoopMode, pLoopModeFactory,
+                        SH_MEMBER(this, &Source2Provider::Hook_CreateLoopModePost), true);
+        SH_REMOVE_HOOK(ILoopModeFactory, DestroyLoopMode, pLoopModeFactory,
+                        SH_MEMBER(this, &Source2Provider::Hook_DestroyLoopMode), false);
+    }
 
-	RETURN_META(MRES_IGNORED);
+    RETURN_META(MRES_IGNORED);
 }
 
-ILoopMode *Source2Provider::Hook_CreateLoopModePost()
-{
-	ILoopMode *pLoopMode = META_RESULT_ORIG_RET(ILoopMode *);
-	SH_ADD_HOOK(ILoopMode, LoopInit, pLoopMode, SH_MEMBER(this, &Source2Provider::Hook_LoopInitPost), true);
-	SH_ADD_HOOK(ILoopMode, LoopShutdown, pLoopMode, SH_MEMBER(this, &Source2Provider::Hook_LoopShutdownPost), true);
+ILoopMode* Source2Provider::Hook_CreateLoopModePost() {
+    ILoopMode* pLoopMode = META_RESULT_ORIG_RET(ILoopMode*);
+    SH_ADD_HOOK(ILoopMode, LoopInit, pLoopMode, SH_MEMBER(this, &Source2Provider::Hook_LoopInitPost), true);
+    SH_ADD_HOOK(ILoopMode, LoopShutdown, pLoopMode, SH_MEMBER(this, &Source2Provider::Hook_LoopShutdownPost), true);
 
-	// Post-hook. Ignored
-	return nullptr;
+    // Post-hook. Ignored
+    return nullptr;
 }
 
-void Source2Provider::Hook_DestroyLoopMode(ILoopMode* pLoopMode)
-{
-	SH_REMOVE_HOOK(ILoopMode, LoopInit, pLoopMode, SH_MEMBER(this, &Source2Provider::Hook_LoopInitPost), true);
-	SH_REMOVE_HOOK(ILoopMode, LoopShutdown, pLoopMode, SH_MEMBER(this, &Source2Provider::Hook_LoopShutdownPost), true);
+void Source2Provider::Hook_DestroyLoopMode(ILoopMode* pLoopMode) {
+    SH_REMOVE_HOOK(ILoopMode, LoopInit, pLoopMode, SH_MEMBER(this, &Source2Provider::Hook_LoopInitPost), true);
+    SH_REMOVE_HOOK(ILoopMode, LoopShutdown, pLoopMode, SH_MEMBER(this, &Source2Provider::Hook_LoopShutdownPost), true);
 }
 
-bool Source2Provider::Hook_LoopInitPost(KeyValues* pKeyValues, ILoopModePrerequisiteRegistry *pRegistry)
-{
-	if (nullptr != m_pCallbacks)
-	{
-		m_pCallbacks->OnLevelInit(
-			pKeyValues->GetString("levelname"),
-			"",
-			pKeyValues->GetString("previouslevel"),
-			pKeyValues->GetString("landmarkname"),
-			pKeyValues->GetBool("loadmap"),
-			false
-		);
-	}
-	
-	// Post-hook. Ignored
-	return true;
+bool Source2Provider::Hook_LoopInitPost(KeyValues* pKeyValues, ILoopModePrerequisiteRegistry* pRegistry) {
+    if (nullptr != m_pCallbacks) {
+        m_pCallbacks->OnLevelInit(pKeyValues->GetString("levelname"), "", pKeyValues->GetString("previouslevel"),
+                                  pKeyValues->GetString("landmarkname"), pKeyValues->GetBool("loadmap"), false);
+    }
+
+    // Post-hook. Ignored
+    return true;
 }
 
-void Source2Provider::Hook_LoopShutdownPost()
-{
-	if (nullptr != m_pCallbacks)
-	{
-		m_pCallbacks->OnLevelShutdown();
-	}
+void Source2Provider::Hook_LoopShutdownPost() {
+    if (nullptr != m_pCallbacks) {
+        m_pCallbacks->OnLevelShutdown();
+    }
 }
 
-void Source2Provider::Hook_ClientCommand(CPlayerSlot nSlot, const CCommand& _cmd)
+void Source2Provider::Hook_ClientCommand(CPlayerSlot nSlot, const CCommand& args)
 {
-	GlobCommand cmd(&_cmd);
+    GlobCommand cmd(&args);
 
-	if (strcmp(cmd.GetArg(0), "meta") == 0)
-	{
-		if (nullptr != m_pCallbacks)
-		{
-			m_pCallbacks->OnCommand_ClientMeta(nSlot, &cmd);
-		}
-		
-		RETURN_META(MRES_SUPERCEDE);
-	}
+    bool shouldContinue = true; // Variable to store whether the original result should be called up
 
-	RETURN_META(MRES_IGNORED);
+    if (strcmp(cmd.GetArg(0), "meta") == 0)
+    {
+        if (nullptr != m_pCallbacks)
+        {
+            m_pCallbacks->OnCommand_ClientMeta(nSlot, &cmd);
+        }
+        
+        shouldContinue = false; // We have handled the functionality, so we set shouldContinue to false to skip the original result
+    }
+
+    if (shouldContinue)
+    {
+        // If shouldContinue is true, we execute the original result of the hooked function
+        // Insert the code here to execute the original result
+    }
 }
+
+#ifdef SHOULD_OVERRIDE_ALLOWDEDICATED_SERVER
+bool Source2Provider::Hook_AllowDedicatedServers(EUniverse universe) const {
+    RETURN_META_VALUE(MRES_SUPERCEDE, true);
+}
+#endif

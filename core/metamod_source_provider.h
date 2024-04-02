@@ -38,7 +38,6 @@
 #include "ISmmAPI.h"
 #include "metamod_provider.h"
 #include "metamod_oslink.h"
-#include "metamod_convar.h" // Include für MetamodSourceConVar hinzufügen
 #if defined DEBUG2
 #undef DEBUG2
 #define _DEBUG
@@ -63,9 +62,16 @@ public: // Must implement
 	virtual void ConsolePrint(const char* msg) override = 0;
 	virtual void ClientConsolePrint(MMSPlayer_t player, const char* msg) override = 0;
 	virtual void ServerCommand(const char* cmd) override = 0;
+	virtual MetamodSourceConVar *CreateConVar(const char* name,
+		const char* defval,
+		const char* help,
+		int flags) override = 0;
+	virtual const char* GetConVarString(MetamodSourceConVar *convar) override = 0;
+	virtual void SetConVarString(MetamodSourceConVar *convar, const char* str) override = 0;
 	virtual bool RegisterConCommandBase(ConCommandBase* pCommand) override = 0;
 	virtual void UnregisterConCommandBase(ConCommandBase* pCommand) override = 0;
 	virtual bool IsConCommandBaseACommand(ConCommandBase* pCommand) override = 0;
+	virtual void SomeFunction() = 0; // Beispiel für eine virtuelle Funktion
 public: // May implement/override (stubbed)
 	virtual int GetUserMessageCount() override { return -1; }
 	virtual int FindUserMessage(const char *name, int *size=nullptr) override { return -1;}
@@ -83,7 +89,7 @@ public:
 		m_pCallbacks = pCallbacks;
 	}
 protected:
-	 IMetamodSourceProviderCallbacks* m_pCallbacks = nullptr;
+	IMetamodSourceProviderCallbacks* m_pCallbacks = nullptr;
 };
 
 extern IVEngineServer *engine;

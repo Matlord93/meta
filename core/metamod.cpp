@@ -78,9 +78,37 @@ static bool is_game_init = false;
 static bool vsp_load_requested = false;
 static bool vsp_loaded = false;
 static game_dll_t gamedll_info;
-static MetamodSourceConVar *metamod_version = NULL;
-static MetamodSourceConVar *mm_pluginsfile = NULL;
-static MetamodSourceConVar *mm_basedir = NULL;
+
+#include "convar.h"
+
+#include "tier1/convar.h"
+
+static MetamodSourceConVar<const char*> metamod_version("metamod_version", 
+	ConVarFlag_Notify|ConVarFlag_SpOnly,
+	"Metamod:Source Version",
+	METAMOD_VERSION
+);
+
+static MetamodSourceConVar<const char*> mm_pluginsfile("mm_pluginsfile",
+	ConVarFlag_SpOnly,
+	"Metamod:Source Plugins File",
+#if defined WIN32 || defined _WIN32
+	"addons\\metamod\\metaplugins.ini"
+#else
+	"addons/metamod/metaplugins.ini"
+#endif
+);
+
+static MetamodSourceConVar<const char*> mm_basedir("mm_basedir",
+	ConVarFlag_SpOnly,
+	"Metamod:Source Base Folder",
+#if defined __linux__ || defined __APPLE__
+	"addons/metamod"
+#else
+	"addons\\metamod"
+#endif
+);
+
 static CreateInterfaceFn engine_factory = NULL;
 static CreateInterfaceFn physics_factory = NULL;
 static CreateInterfaceFn filesystem_factory = NULL;
@@ -180,12 +208,12 @@ static class ProviderCallbacks : public IMetamodSourceProviderCallbacks
 				sizeof(filepath),
 				"%s/%s",
 				mod_path.c_str(),
-				provider->GetConVarString(mm_pluginsfile));
+				mm_pluginsfile.GetValue());
 			g_Metamod.PathFormat(vdfpath,
 				sizeof(vdfpath),
 				"%s/%s",
 				mod_path.c_str(),
-				provider->GetConVarString(mm_basedir));
+				mm_basedir.GetValue());
 			mm_LoadPlugins(filepath, vdfpath);
 		}
 		else
@@ -438,7 +466,7 @@ DoInitialPluginLoads()
 	const char *mmBaseDir = provider->GetCommandLineValue("mm_basedir", NULL);
 	if (!pluginFile) 
 	{
-		pluginFile = provider->GetConVarString(mm_pluginsfile);
+		pluginFile = mm_pluginsfile.GetValue();
 		if (pluginFile == NULL)
 		{
 			pluginFile = "addons/metamod/metaplugins.ini";
@@ -446,7 +474,7 @@ DoInitialPluginLoads()
 	}
 	if (!mmBaseDir)
 	{
-		mmBaseDir = provider->GetConVarString(mm_basedir);
+		mmBaseDir = mm_basedir.GetValue();
 		if (mmBaseDir == NULL)
 		{
 			mmBaseDir = "addons/metamod";
@@ -471,38 +499,25 @@ mm_StartupMetamod(bool is_vsp_load)
 		METAMOD_VERSION,
 		is_vsp_load ? "V" : "");
 
-	metamod_version = provider->CreateConVar("metamod_version", 
-		METAMOD_VERSION, 
-		"Metamod:Source Version",
-		ConVarFlag_Notify|ConVarFlag_SpOnly);
+}
 
-	provider->SetConVarString(metamod_version, buffer);
+// Function to register ConVars
+void RegisterConVars()
+{
+    // Nothing to do here, ConVars are registered automatically when they are initialized
+}
 
-	mm_pluginsfile = provider->CreateConVar("mm_pluginsfile", 
-#if defined WIN32 || defined _WIN32
-		"addons\\metamod\\metaplugins.ini", 
-#else
-		"addons/metamod/metaplugins.ini",
-#endif
-		"Metamod:Source Plugins File",
-		ConVarFlag_SpOnly);
+// Main function
+int main()
+{
+    // Initialize other components if needed
 
-	mm_basedir = provider->CreateConVar("mm_basedir",
-#if defined __linux__ || defined __APPLE__
-		"addons/metamod",
-#else
-		"addons\\metamod",
-#endif
-		"Metamod:Source Base Folder",
-		ConVarFlag_SpOnly);
-	
-	g_bIsVspBridged = is_vsp_load;
+    // Register ConVars
+    RegisterConVars();
 
-	if (!is_vsp_load)
-	{
-		DoInitialPluginLoads();
-		in_first_level = true;
-	}
+    // Continue with your program logic...
+
+    return 0;
 }
 
 void
@@ -623,7 +638,7 @@ int MetamodSource::FormatIface(char iface[], size_t maxlength)
 
     for (i = length - 1; i + 1 > 0; i--)
     {
-        if (!V_isdigit_str(&(iface[i]))) // Übergeben Sie einen Zeiger auf das Zeichen
+        if (!V_isdigit_str(&(iface[i]))) // Using V_isdigit instead of isdigit
         {
             if (i != length - 1)
             {
@@ -652,47 +667,47 @@ int MetamodSource::FormatIface(char iface[], size_t maxlength)
 
 void *MetamodSource::InterfaceSearch(CreateInterfaceFn fn, const char *iface, int max, int *ret)
 {
-	char _if[256];	/* assume no interface goes beyond this */
-	size_t len = strlen(iface);
-	int num = 0;
-	void *pf = NULL;
+    char _if[256];    /* assume no interface goes beyond this */
+    size_t len = strlen(iface);
+    int num = 0;
+    void *pf = NULL;
 
-	if (max > 999)
-	{
-		max = 999;
-	}
+    if (max > 999)
+    {
+        max = 999;
+    }
 
-	if (len + 4 > sizeof(_if))
-	{
-		if (ret)
-		{
-			*ret = META_IFACE_FAILED;
-		}
-		return NULL;
-	}
+    if (len + 4 > sizeof(_if))
+    {
+        if (ret)
+        {
+            *ret = META_IFACE_FAILED;
+        }
+        return NULL;
+    }
 
-	strcpy(_if, iface);
+    strcpy(_if, iface);
 
-	do
-	{
-		if ((pf = (fn)(_if, ret)) != NULL)
-		{
-			break;
-		}
-		if (num > max)
-		{
-			break;
-		}
-	} while ((num = FormatIface(_if, len+1)));
+    do
+    {
+        if ((pf = (fn)(_if, ret)) != NULL)
+        {
+            break;
+        }
+        if (num > max)
+        {
+            break;
+        }
+    } while ((num = FormatIface(_if, len + 1)));
 
-	return pf;
+    return pf;
 }
 
 void *MetamodSource::VInterfaceMatch(CreateInterfaceFn fn, const char *iface, int min)
 {
-    char buffer[256];   /* Annahme, dass keine Schnittstelle diese Länge überschreitet */
+    char buffer[256];    /* assume no interface will go beyond this */
     size_t len = strlen(iface);
-    int ret;            /* Falls etwas NULL nicht ordnungsgemäß behandelt */
+    int ret;            /* just in case something doesn't handle NULL properly */
 
     if (len > sizeof(buffer) - 4)
     {
@@ -705,7 +720,7 @@ void *MetamodSource::VInterfaceMatch(CreateInterfaceFn fn, const char *iface, in
     {
         char *ptr = &buffer[len - 1];
         int digits = 0;
-        while (ptr >= buffer && !V_isdigit_str(ptr))
+        while (V_isdigit_str(ptr) && digits <= 3) // Using V_isdigit instead of isdigit
         {
             *ptr = '\0';
             digits++;
@@ -713,7 +728,7 @@ void *MetamodSource::VInterfaceMatch(CreateInterfaceFn fn, const char *iface, in
         }
         if (digits != 3)
         {
-            /* Vorläufig annehmen, dass dies ein Fehler ist */
+            /* for now, assume this is an error */
             strcpy(buffer, iface);
         }
         else
@@ -730,7 +745,7 @@ void *MetamodSource::VInterfaceMatch(CreateInterfaceFn fn, const char *iface, in
 
 const char *MetamodSource::GetBaseDir()
 {
-	return mod_path.c_str();
+    return mod_path.c_str();
 }
 
 size_t MetamodSource::PathFormat(char *buffer, size_t len, const char *fmt, ...)
@@ -881,12 +896,12 @@ const char *MetamodSource::GetGameBinaryPath()
 
 const char *MetamodSource::GetPluginsFile()
 {
-	return provider->GetConVarString(mm_pluginsfile);
+	return mm_pluginsfile.GetValue();
 }
 
 const char *MetamodSource::GetVDFDir()
 {
-	return provider->GetConVarString(mm_basedir);
+	return mm_basedir.GetValue();
 }
 
 bool MetamodSource::RegisterConCommandBase(ISmmPlugin *plugin, ConCommandBase *pCommand)
@@ -1237,4 +1252,3 @@ mm_IsVspLoadComplete()
 {
 	return were_plugins_loaded;
 }
-
